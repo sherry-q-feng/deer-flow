@@ -45,6 +45,51 @@ export async function* chatStream(
     return yield* chatReplayStream(userMessage, params, options);
   
   try{
+    // WORKAROUND: Use non-streaming endpoint due to streaming connection issues
+    // TODO: Fix streaming endpoint and revert to streaming version
+    
+    const response = await fetch(resolveServiceURL("chat"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: userMessage }],
+        ...params,
+      }),
+      signal: options.abortSignal,
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    
+    // Parse the events from the non-streaming response
+    for (const eventString of result.events) {
+      // Parse the SSE format: "event: type\ndata: json\n\n"
+      const lines = eventString.trim().split('\n');
+      let eventType = 'message';
+      let eventData = null;
+      
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          eventType = line.substring(7);
+        } else if (line.startsWith('data: ')) {
+          eventData = line.substring(6);
+        }
+      }
+      
+      if (eventData) {
+        yield {
+          type: eventType,
+          data: JSON.parse(eventData),
+        } as ChatEvent;
+      }
+    }
+    
+    /* ORIGINAL STREAMING CODE - COMMENTED OUT DUE TO CONNECTION ISSUES
     const stream = fetchStream(resolveServiceURL("chat/stream"), {
       body: JSON.stringify({
         messages: [{ role: "user", content: userMessage }],
@@ -59,6 +104,7 @@ export async function* chatStream(
         data: JSON.parse(event.data),
       } as ChatEvent;
     }
+    */
   }catch(e){
     console.error(e);
   }

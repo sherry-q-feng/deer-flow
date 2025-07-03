@@ -88,6 +88,35 @@ async def chat_stream(request: ChatRequest):
     )
 
 
+@app.post("/api/chat")
+async def chat_non_stream(request: ChatRequest):
+    """Non-streaming chat endpoint as a workaround for streaming issues."""
+    thread_id = request.thread_id
+    if thread_id == "__default__":
+        thread_id = str(uuid4())
+    
+    # Collect all events from the streaming generator
+    events = []
+    async for event in _astream_workflow_generator(
+        request.model_dump()["messages"],
+        thread_id,
+        request.resources,
+        request.max_plan_iterations,
+        request.max_step_num,
+        request.max_search_results,
+        request.auto_accepted_plan,
+        request.interrupt_feedback,
+        request.mcp_settings,
+        request.enable_background_investigation,
+        request.report_style,
+        request.enable_deep_thinking,
+    ):
+        events.append(event)
+    
+    # Return all events as a JSON array
+    return {"events": events, "thread_id": thread_id}
+
+
 async def _astream_workflow_generator(
     messages: List[dict],
     thread_id: str,
